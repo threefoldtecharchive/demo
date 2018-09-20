@@ -30,21 +30,25 @@ class Perf:
 
     def simple_write_read(self):
         try:
-            logger.info("create bucket")
-            self.client.make_bucket('simple-write-read')
-        except BucketAlreadyExists:
-            pass
-        except BucketAlreadyOwnedByYou:
-            pass
+            try:
+                logger.info("create bucket")
+                self.client.make_bucket('simple-write-read')
+            except BucketAlreadyExists:
+                pass
+            except BucketAlreadyOwnedByYou:
+                pass
 
-        buf = BytesIO()
-        input = os.urandom(1024*1024*2)
-        buf.write(input)
-        buf.seek(0)
+            buf = BytesIO()
+            input = os.urandom(1024*1024*2)
+            buf.write(input)
+            buf.seek(0)
 
-        logger.info("upload 2MiB file")
-        self.client.put_object('test', 'blob', buf, len(input))
-        logger.info("download same file")
-        obj = self.client.get_object('test', 'blob')
-        logger.info("compare upload and download")
-        assert input == obj.read()
+            logger.info("upload 2MiB file")
+            self.client.put_object('test', 'blob', buf, len(input))
+            logger.info("download same file")
+            obj = self.client.get_object('test', 'blob')
+            logger.info("compare upload and download")
+            assert input == obj.read()
+            logger.info("comparison valid")
+        finally:
+            self.client.remove_bucket('simple-write-read')

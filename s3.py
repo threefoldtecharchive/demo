@@ -47,7 +47,12 @@ class S3Manager:
             if cont.name.startswith('minio_'):
                 return cont
 
-    def create_s3(self, farm, size=20, data=4, parity=2, login='admin', password='adminadmin'):
+    @property
+    def minio_vm(self):
+        vm = self.dm_robot.services.get(template_name='dm_vm')
+        return j.clients.zos.get(vm.data['data']['nodeId'])
+
+    def create_s3(self, farm, size=20000, data=4, parity=2, shard_size=2000, login='admin', password='adminadmin'):
         logger.info("install zerotier client")
         zt = self.dm_robot.services.find_or_create('zerotier_client', 'zt', data={'token': self._zt_token})
 
@@ -59,11 +64,13 @@ class S3Manager:
             'parityShards': parity,
             'storageType': 'hdd',
             'storageSize': size,
+            'shardSize': shard_size,
             'minioLogin': login,
             'minioPassword': password}
-        s3 = self.dm_robot.services.find_or_create('s3', 's3-demo', data=s3_data)
-        t = s3.schedule_action('install').wait(die=True)
+        self.service = self.dm_robot.services.find_or_create('s3', 's3-demo', data=s3_data)
+        return self.service.schedule_action('install')
 
-        self.service = s3
-
-        return s3
+    @property
+    def url(self):
+        if self.service:
+            return self.service.schedule_action('url').wait(die=True).result

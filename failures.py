@@ -1,5 +1,9 @@
-from jumpscale import j
+import time
 
+import requests
+from requests.exceptions import ConnectTimeout, ConnectionError
+
+from jumpscale import j
 from zerorobot.template.state import StateCheckError
 
 logger = j.logger.get()
@@ -15,6 +19,32 @@ class FailureGenenator:
         for zdb in robot.services.find(template_name='zerodb'):
             logger.info('start %s' % zdb)
             zdb.schedule_action('start')
+
+    def minio_process_down(self):
+        url = self._parent.s3.url
+        cont = self._parent.s3.minio_container
+        for job in cont.client.job.list():
+            if job['cmd']['id'].startswith('minio.'):
+                logger.info('killing minio process')
+                cont.client.job.kill(job['cmd']['id'])
+                break
+        else:
+            return
+        logger.info("wait for minio to restart")
+        start = time.time()
+        while True:
+            try:
+                resp = requests.get(url, timeout=0.2)
+                end = time.time()
+                break
+            except ConnectionError:
+                continue
+            except ConnectionError:
+                continue
+
+        duration = end-start
+        logger.info("minio took %s sec to restart" % duration)
+        return duration
 
     def zdb_down(self, count=1):
         """

@@ -34,6 +34,22 @@ class Demo:
                 pass
         return self._node_robot
 
+    def list_zdb_password(self):
+        for cont in self.node.containers.list():
+            if cont.name.find('zdb') == -1:
+                continue
+            for ps in cont.client.job.list():
+                if 'args' in ps['cmd']['arguments']:
+                    yield (cont.name, ps['cmd']['arguments']['args'][9])
+
+    def compare_zdb_pasword(self):
+        for name, password in self.list_zdb_password():
+            service = self.node_robot.services.get(name=name[4:])
+            if password != service.data['data']['admin']:
+                print("difference found")
+                print("service password: %s" % service.data['data']['admin'])
+                print("process password: %s" % password)
+
 
 def create_clients(config):
     node = j.clients.zos.get('demo', data={'host': config['node']['ip']})
