@@ -1,61 +1,48 @@
 #!/usr/bin/env python3
+from gevent import monkey
+monkey.patch_all()
 
 import click
+from failures import FailureGenenator
+from gevent.pool import Group
 from jumpscale import j
 from monitoring import Monitoring
-from s3 import S3Manager
-from failures import FailureGenenator
 from perf import Perf
+from s3 import S3Manager
+from reset import EnvironmentReset
 
 
 class Demo:
 
     def __init__(self, config):
-        self._config = config
-        self._node_robot = None
+        self.config = config
 
-        node, robot = create_clients(config)
-        self.node = node
-        self.robot = robot
-
-        self.s3 = S3Manager(robot, config['zerotier']['id'], config['zerotier']['token'])
-        self.monitoring = Monitoring(node)
+        self.s3 = S3Manager(self)
+        self.monitoring = Monitoring(self)
         self.failures = FailureGenenator(self)
         self.perf = Perf(self)
+        self.reset = EnvironmentReset(self)
 
-    @property
-    def node_robot(self):
-        if self._node_robot is None:
-            j.clients.zrobot.get('node_demo', data={'url': "http://%s:6600" % self._config['node']['ip']})
-            self._node_robot = j.clients.zrobot.robots['node_demo']
-            try:
-                self._node_robot._try_god_token()
-            except:
-                pass
-        return self._node_robot
+    def execute_all_nodes(self, func, nodes=None):
+        """
+        execute func on all the nodes
 
-    def list_zdb_password(self):
-        for cont in self.node.containers.list():
-            if cont.name.find('zdb') == -1:
-                continue
-            for ps in cont.client.job.list():
-                if 'args' in ps['cmd']['arguments']:
-                    yield (cont.name, ps['cmd']['arguments']['args'][9])
+        if nodes is None, func is execute on all the nodes that play a role with the minio
+        deployement, if nodes is not None, it needs to be an iterable containing a node object
 
-    def compare_zdb_pasword(self):
-        for name, password in self.list_zdb_password():
-            service = self.node_robot.services.get(name=name[4:])
-            if password != service.data['data']['admin']:
-                print("difference found")
-                print("service password: %s" % service.data['data']['admin'])
-                print("process password: %s" % password)
+        :param func: function to execute, func needs to accept one argument, a node object
+        :type func: function
+        :param nodes: list of node on whic to execute func, defaults to None
+        :param nodes: iterable, optional
+        """
 
+        if nodes is None:
+            nodes = set([self.s3.vm_node, self.s3.vm_host])
+            nodes.update(self.s3.zerodb_nodes)
 
-def create_clients(config):
-    node = j.clients.zos.get('demo', data={'host': config['node']['ip']})
-    robot = j.clients.zrobot.get('demo', data={'url': config['robot']['url']})
-    robot = j.clients.zrobot.robots['demo']
-    return node, robot
+        g = Group()
+        g.map(func, nodes)
+        g.join()
 
 
 def read_config(path):
@@ -71,5 +58,6 @@ def main(config):
     embed()
 
 
+# self.client.bash('test -b /dev/{0} && dd if=/dev/zero bs=1M count=500 of=/dev/{0}'.format(diskpath)).get()
 if __name__ == '__main__':
     main()

@@ -15,21 +15,47 @@ class FailureGenenator:
         self._parent = parent
 
     def zdb_start_all(self):
-        robot = self._parent.node_robot
-        for zdb in robot.services.find(template_name='zerodb'):
-            logger.info('start %s' % zdb)
-            zdb.schedule_action('start')
+        """
+        start all the zerodb services used by minio
+        """
+
+        def do(node):
+            j.clients.zrobot.get(node.name, data={'url': 'http://%s:6600' % node.public_addr})
+            robot = j.clients.zrobot.robots[node.name]
+            for zdb in robot.services.find(template_name='zerodb'):
+                logger.info('start zerodb %s on node %s', zdb.name, node.name)
+                zdb.schedule_action('start')
+
+        self._parent.execute_all_nodes(do, nodes=self._parent.s3.zerodb_nodes)
+
+    def zdb_stop_all(self, destroy_data=False):
+        """
+        start all the zerodb services used by minio
+        """
+
+        def do(node):
+            j.clients.zrobot.get(node.name, data={'url': 'http://%s:6600' % node.public_addr})
+            robot = j.clients.zrobot.robots[node.name]
+            for zdb in robot.services.find(template_name='zerodb'):
+                logger.info('stop zerodb %s on node %s', zdb.name, node.name)
+                zdb.schedule_action('stop').wait(die=True)
+                if destroy_data:
+                    logger.info("delete zerodb data from %s", node.name)
+                    node.client.bash('rm -r /mnt/zdbs/*/*').get()
+
+        self._parent.execute_all_nodes(do, nodes=self._parent.s3.zerodb_nodes)
 
     def minio_process_down(self):
-        url = self._parent.s3.url
-        cont = self._parent.s3.minio_container
-        for job in cont.client.job.list():
-            if job['cmd']['id'].startswith('minio.'):
-                logger.info('killing minio process')
-                cont.client.job.kill(job['cmd']['id'])
-                break
-        else:
-            return
+        """
+        turn off the minio process, then count how much times it takes to restart
+        """
+        s3 = self._parent.s3
+        url = s3.url['public']
+        cont = s3.minio_container
+
+        logger.info('killing minio process')
+        cont.client.job.kill('minio.%s' % s3.service.guid)
+
         logger.info("wait for minio to restart")
         start = time.time()
         while True:
