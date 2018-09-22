@@ -22,6 +22,7 @@ class FailureGenenator:
         def do(node):
             j.clients.zrobot.get(node.name, data={'url': 'http://%s:6600' % node.public_addr})
             robot = j.clients.zrobot.robots[node.name]
+            robot._try_god_token()
             for zdb in robot.services.find(template_name='zerodb'):
                 logger.info('start zerodb %s on node %s', zdb.name, node.name)
                 zdb.schedule_action('start')
@@ -76,22 +77,48 @@ class FailureGenenator:
         """
         ensure that count zdb are turned off
         """
-        robot = self._parent.node_robot
-        s3 = self._parent.s3.service
+        s3 = self._parent.s3
         if not s3:
             return
 
         n = 0
-        for namespace in s3.data['data']['namespaces']:
+        for namespace in s3.service.data['data']['namespaces']:
             if n >= count:
                 break
+            robot = j.clients.zrobot.robots[namespace['node']]
+            robot._try_god_token()
             ns = robot.services.get(name=namespace['name'])
             zdb = robot.services.get(name=ns.data['data']['zerodb'])
 
             try:
                 zdb.state.check('status', 'running', 'ok')
-                logger.info('stop %s' % zdb)
+                logger.info('stop %s on node %s', zdb.name, namespace['node'])
                 zdb.schedule_action('stop').wait(die=True)
+                n += 1
             except StateCheckError:
                 pass
-            n += 1
+
+    def zdb_up(self, count=1):
+        """
+        ensure that count zdb are turned off
+        """
+        s3 = self._parent.s3
+        if not s3:
+            return
+
+        n = 0
+        for namespace in s3.service.data['data']['namespaces']:
+            if n >= count:
+                break
+            robot = j.clients.zrobot.robots[namespace['node']]
+            robot._try_god_token()
+            ns = robot.services.get(name=namespace['name'])
+            zdb = robot.services.get(name=ns.data['data']['zerodb'])
+
+            try:
+                zdb.state.check('status', 'running', 'ok')
+                continue
+            except StateCheckError:
+                logger.info('start %s on node %s', zdb.name, namespace['node'])
+                zdb.schedule_action('start').wait(die=True)
+                n += 1

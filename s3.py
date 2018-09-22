@@ -72,7 +72,7 @@ class S3Manager:
         zos machine that host the vm_node
         """
 
-        vm = self.dm_robot.services.get(template_name='dm_vm')
+        vm = self.dm_robot.services.get(template_name='dm_vm', name=self.service.guid)
         return j.clients.zos.get(vm.data['data']['nodeId'])
 
     def deploy(self, farm, size=20000, data=4, parity=2, shard_size=2000, login='admin', password='adminadmin'):
