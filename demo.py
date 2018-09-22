@@ -14,10 +14,10 @@ from reset import EnvironmentReset
 
 class Demo:
 
-    def __init__(self, config):
+    def __init__(self, config, name):
         self.config = config
 
-        self.s3 = S3Manager(self)
+        self.s3 = S3Manager(self, name)
         self.monitoring = Monitoring(self)
         self.failures = FailureGenenator(self)
         self.perf = Perf(self)
@@ -52,8 +52,9 @@ def read_config(path):
 
 @click.command()
 @click.option('--config', help='path to config file', default='demo.yaml')
-def main(config):
-    demo = Demo(read_config('demo.yaml'))
+@click.option('--name', help='name of the s3 service', required=True)
+def main(config, name):
+    demo = Demo(read_config('demo.yaml'), name)
     from IPython import embed
     embed()
 

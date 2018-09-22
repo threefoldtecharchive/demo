@@ -6,8 +6,9 @@ logger = j.logger.get('s3demo')
 
 class S3Manager:
 
-    def __init__(self, parent):
+    def __init__(self, parent, s3_name):
         self._parent = parent
+        self._s3_name = s3_name
         j.clients.zrobot.get('demo', data={'url': self._parent.config['robot']['url']})
         self.dm_robot = j.clients.zrobot.robots['demo']
 
@@ -17,7 +18,7 @@ class S3Manager:
         self._vm_node = None
         self._vm_robot = None
         try:
-            self._service = self.dm_robot.services.get(name='s3-demo')
+            self._service = self.dm_robot.services.get(name=s3_name)
         except ServiceNotFoundError:
             self._service = None
 
@@ -96,7 +97,7 @@ class S3Manager:
             'shardSize': shard_size,
             'minioLogin': login,
             'minioPassword': password}
-        self._service = self.dm_robot.services.find_or_create('s3', 's3-demo', data=s3_data)
+        self._service = self.dm_robot.services.find_or_create('s3', self._s3_name, data=s3_data)
         return self._service.schedule_action('install')
 
     @property
