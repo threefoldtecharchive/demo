@@ -32,6 +32,19 @@ class EnvironmentReset:
 
         self._parent.execute_all_nodes(do, nodes=list_farm_nodes(organization))
 
+    def restart_robots(self, organization):
+        def do(node):
+            try:
+                node.client.ping()
+            except:
+                logger.error("can't reach %s skipping", node.addr)
+                pass
+
+            logger.info("restart robot on node %s", node.addr)
+            node.containers.get('zrobot').stop()
+
+        self._parent.execute_all_nodes(do, nodes=list_farm_nodes(organization))
+
 
 def list_farm_nodes(farm_organization):
     capacity = j.clients.threefold_directory.get(interactive=False)
