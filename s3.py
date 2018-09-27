@@ -13,14 +13,14 @@ logger = j.logger.get('s3demo')
 
 class S3Manager:
 
-    def __init__(self, parent, s3_name):
+    def __init__(self, parent, name):
         self.monitoring = Monitoring(self)
         self.failures = FailureGenenator(self)
         self.perf = Perf(self)
         self.reset = EnvironmentReset(self)
 
         self._parent = parent
-        self._s3_name = s3_name
+        self.name = name
         j.clients.zrobot.get('demo', data={'url': self._parent.config['robot']['url']})
         self.dm_robot = j.clients.zrobot.robots['demo']
 
@@ -30,7 +30,7 @@ class S3Manager:
         self._vm_node = None
         self._vm_robot = None
         try:
-            self._service = self.dm_robot.services.get(name=s3_name)
+            self._service = self.dm_robot.services.get(name=name)
         except ServiceNotFoundError:
             self._service = None
 
@@ -106,6 +106,10 @@ class S3Manager:
         return self.vm_node.containers.get("minio_%s" % self.service.guid)
 
     @property
+    def minio_config(self):
+        return self.minio_container.download_content('/bin/zerostor.yaml')
+
+    @property
     def vm_host(self):
         """
         zos machine that host the vm_node
@@ -144,7 +148,7 @@ class S3Manager:
             'storageSize': size,
             'minioLogin': login,
             'minioPassword': password}
-        self._service = self.dm_robot.services.find_or_create('s3', self._s3_name, data=s3_data)
+        self._service = self.dm_robot.services.find_or_create('s3', self.name, data=s3_data)
         return self._service.schedule_action('install')
 
     @property
