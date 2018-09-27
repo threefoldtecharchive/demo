@@ -16,7 +16,7 @@ class Perf:
     @property
     def client(self):
         if self._client is None:
-            s3 = self._parent.s3.service
+            s3 = self._parent.service
             if not s3:
                 return
             url = s3.schedule_action('url').wait(die=True).result

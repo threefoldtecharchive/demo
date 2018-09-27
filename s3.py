@@ -1,12 +1,24 @@
 from jumpscale import j
 from zerorobot.service_collection import ServiceNotFoundError
 
+from gevent.pool import Group
+
+from monitoring import Monitoring
+from perf import Perf
+from reset import EnvironmentReset
+from failures import FailureGenenator
+
 logger = j.logger.get('s3demo')
 
 
 class S3Manager:
 
     def __init__(self, parent, s3_name):
+        self.monitoring = Monitoring(self)
+        self.failures = FailureGenenator(self)
+        self.perf = Perf(self)
+        self.reset = EnvironmentReset(self)
+
         self._parent = parent
         self._s3_name = s3_name
         j.clients.zrobot.get('demo', data={'url': self._parent.config['robot']['url']})
@@ -21,6 +33,27 @@ class S3Manager:
             self._service = self.dm_robot.services.get(name=s3_name)
         except ServiceNotFoundError:
             self._service = None
+
+    def execute_all_nodes(self, func, nodes=None):
+        """
+        execute func on all the nodes
+
+        if nodes is None, func is execute on all the nodes that play a role with the minio
+        deployement, if nodes is not None, it needs to be an iterable containing a node object
+
+        :param func: function to execute, func needs to accept one argument, a node object
+        :type func: function
+        :param nodes: list of node on whic to execute func, defaults to None
+        :param nodes: iterable, optional
+        """
+
+        if nodes is None:
+            nodes = set([self.vm_node, self.vm_host])
+            nodes.update(self.zerodb_nodes)
+
+        g = Group()
+        g.map(func, nodes)
+        g.join()
 
     @property
     def service(self):
@@ -59,6 +92,12 @@ class S3Manager:
             yield j.clients.zos.get(zerodb['node'])
 
     @property
+    def tlog_node(self):
+        data = self.service.data['data']
+        if data['tlog'] and data['tlog']['node']:
+            return j.clients.zos.get(data['tlog']['node'])
+
+    @property
     def minio_container(self):
         """
         container running minio.
@@ -75,7 +114,16 @@ class S3Manager:
         vm = self.dm_robot.services.get(template_name='dm_vm', name=self.service.guid)
         return j.clients.zos.get(vm.data['data']['nodeId'])
 
-    def deploy(self, farm, size=20000, data=4, parity=2, shard_size=2000, login='admin', password='adminadmin'):
+    @property
+    def robot_host(self):
+        """
+        robot of the the vm host
+        """
+
+        vm = self.dm_robot.services.get(template_name='dm_vm', name=self.service.guid)
+        return j.clients.zrobot.robots[vm.data['data']['nodeId']]
+
+    def deploy(self, farm, size=20000, data=4, parity=2, login='admin', password='adminadmin'):
         """
         deploy an s3 environment
 
@@ -94,7 +142,6 @@ class S3Manager:
             'parityShards': parity,
             'storageType': 'hdd',
             'storageSize': size,
-            'shardSize': shard_size,
             'minioLogin': login,
             'minioPassword': password}
         self._service = self.dm_robot.services.find_or_create('s3', self._s3_name, data=s3_data)

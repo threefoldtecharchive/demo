@@ -27,7 +27,7 @@ class FailureGenenator:
                 logger.info('start zerodb %s on node %s', zdb.name, node.name)
                 zdb.schedule_action('start')
 
-        self._parent.execute_all_nodes(do, nodes=self._parent.s3.zerodb_nodes)
+        self._parent.execute_all_nodes(do, nodes=self._parent.zerodb_nodes)
 
     def zdb_stop_all(self, destroy_data=False):
         """
@@ -44,13 +44,13 @@ class FailureGenenator:
                     logger.info("delete zerodb data from %s", node.name)
                     node.client.bash('rm -r /mnt/zdbs/*/*').get()
 
-        self._parent.execute_all_nodes(do, nodes=self._parent.s3.zerodb_nodes)
+        self._parent.execute_all_nodes(do, nodes=self._parent.zerodb_nodes)
 
     def minio_process_down(self):
         """
         turn off the minio process, then count how much times it takes to restart
         """
-        s3 = self._parent.s3
+        s3 = self._parent
         url = s3.url['public']
         cont = s3.minio_container
 
@@ -77,7 +77,7 @@ class FailureGenenator:
         """
         ensure that count zdb are turned off
         """
-        s3 = self._parent.s3
+        s3 = self._parent
         if not s3:
             return
 
@@ -102,7 +102,7 @@ class FailureGenenator:
         """
         ensure that count zdb are turned off
         """
-        s3 = self._parent.s3
+        s3 = self._parent
         if not s3:
             return
 
