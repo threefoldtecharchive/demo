@@ -40,8 +40,12 @@ class EnvironmentReset:
                 logger.error("can't reach %s skipping", node.addr)
                 pass
 
-            logger.info("restart robot on node %s", node.addr)
-            node.containers.get('zrobot').stop()
+
+            try:
+                node.containers.get('zrobot').stop()
+                logger.info("restart robot on node %s", node.addr)
+            except:
+                logger.error("can't restart robot on node %s", node.addr)
 
         self._parent.execute_all_nodes(do, nodes=list_farm_nodes(organization))
 
