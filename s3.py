@@ -30,6 +30,7 @@ class S3Manager:
 
         self._vm_node = None
         self._vm_robot = None
+        self._vm_host = None
         try:
             self._service = self.dm_robot.services.get(name=name)
         except ServiceNotFoundError:
@@ -63,7 +64,7 @@ class S3Manager:
         return self._service
 
     @property
-    def service_vm(self):
+    def dm_vm(self):
         return self.dm_robot.services.get(name=self.service.guid)
 
     @property
@@ -72,8 +73,7 @@ class S3Manager:
         zos client on the zos VM that host the minio container
         """
         if self._vm_node is None:
-            dm_vm = self.dm_robot.services.get(name=self.service.guid)
-            ip = dm_vm.schedule_action('info').wait(die=True).result['zerotier']['ip']
+            ip = self.dm_vm.schedule_action('info').wait(die=True).result['zerotier']['ip']
             self._vm_node = j.clients.zos.get('demo_vm_node', data={'host': ip})
         return self._vm_node
 
@@ -83,8 +83,7 @@ class S3Manager:
         zrobot client on the zos VM that host the minio container
         """
         if self._vm_robot is None:
-            j.clients.zrobot.get('demo_vm_robot', data={'url': "http://%s:6600" % self.vm_node.public_addr})
-            self._vm_robot = j.clients.zrobot.robots['demo_vm_robot']
+            self._vm_robot = j.clients.zrobot.robots['%s_vm' % self.vm_node.public_addr]
         return self._vm_robot
 
     @property
@@ -115,10 +114,10 @@ class S3Manager:
         """
         zos machine that host the vm_node
         """
-        vm = self.dm_robot.services.get(template_name='dm_vm', name=self.service.guid)
-        robot = j.clients.zrobot.robots[vm.data['data']['nodeId']]
-        u = urlparse(robot._client.config.data['url'])
-        return j.clients.zos.get(vm.data['data']['nodeId'], data={'host': u.hostname})
+        if self._vm_host is None:
+            result = self.dm_vm.schedule_action('info').wait(die=True).result
+            self._vm_host = j.clients.zos.get(result['node_id'], data={'host': result['host']['public_addr']})
+        return self._vm_host
 
     def reset_vm(self):
         dmvm = self.dm_robot.services.get(template_name='dm_vm', name=self.service.guid)
@@ -129,25 +128,19 @@ class S3Manager:
         node.client.kvm.reset(uuid)
 
     def vm_vnc(self):
-        dmvm = self.dm_robot.services.get(template_name='dm_vm', name=self.service.guid)
-        robot = j.clients.zrobot.robots[dmvm.data['data']['nodeId']]
-        u = urlparse(robot._client.config.data['url'])
-        node = j.clients.zos.get(dmvm.data['data']['nodeId'], data={'host': u.hostname})
-        vm = robot.services.names[dmvm.guid+'_vm']
+        vm = self.robot_host.services.names[self.dm_vm.guid+'_vm']
         uuid = vm.data['data']['uuid']
 
-        vm_info = node.client.kvm.get(uuid=uuid)
-        node.client.nft.open_port(vm_info['vnc'])
-        print('open at %s:%s' % (node.public_addr, vm_info['vnc']))
+        vm_info = self.vm_host.client.kvm.get(uuid=uuid)
+        self.vm_host.client.nft.open_port(vm_info['vnc'])
+        print('open at %s:%s' % (self.vm_host.public_addr, vm_info['vnc']))
 
     @property
     def robot_host(self):
         """
         robot of the the vm host
         """
-
-        vm = self.dm_robot.services.get(template_name='dm_vm', name=self.service.guid)
-        return j.clients.zrobot.robots[vm.data['data']['nodeId']]
+        return j.clients.zrobot.robots[self.dm_vm.data['data']['nodeId']]
 
     def deploy(self, farm, size=20000, data=4, parity=2, login='admin', password='adminadmin'):
         """
