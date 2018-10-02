@@ -1,13 +1,13 @@
-from jumpscale import j
-from io import BytesIO
 import os
-from minio import Minio
-from minio.error import BucketAlreadyExists, BucketAlreadyOwnedByYou
+import subprocess
+import time
+from contextlib import contextmanager
+from io import BytesIO
 from urllib.parse import urlparse
 
-import subprocess
-
-from contextlib import contextmanager
+from jumpscale import j
+from minio import Minio
+from minio.error import BucketAlreadyExists, BucketAlreadyOwnedByYou
 
 logger = j.logger.get()
 
@@ -15,6 +15,13 @@ logger = j.logger.get()
 class Perf:
     def __init__(self, parent):
         self._parent = parent
+        self._client_type = 'public'
+        self._client = None
+
+    def set_network(self, network):
+        if network not in ['public', 'storage']:
+            raise ValueError("network must be 'public' or 'storage', not %s" % network)
+        self._client_type = network
         self._client = None
 
     @contextmanager
@@ -38,9 +45,10 @@ class Perf:
         if self._client is None:
             s3 = self._parent.service
             if not s3:
-                return
+                raise RuntimeError("s3 services not found")
+
             url = s3.schedule_action('url').wait(die=True).result
-            u = urlparse(url['public'])
+            u = urlparse(url[self._client_type])
 
             self._client = Minio(u.netloc,
                                  access_key=s3.data['data']['minioLogin'],
@@ -48,14 +56,18 @@ class Perf:
                                  secure=False)
         return self._client
 
-    def simple_write_read(self):
+    def simple_write_read(self, size=None):
+        MiB = 1024**2
+        if not size:
+            size = 2*MiB
+
         with self._temp_bucket() as bucket_name:
             buf = BytesIO()
             input = os.urandom(1024*1024*2)
             buf.write(input)
             buf.seek(0)
 
-            logger.info("upload 2MiB file")
+            logger.info("upload %dMiB file" % size)
             self.client.put_object(bucket_name, 'blob', buf, len(input))
             logger.info("download same file")
             obj = self.client.get_object(bucket_name, 'blob')
@@ -63,20 +75,60 @@ class Perf:
             assert input == obj.read()
             logger.info("comparison valid")
 
+    def write_file(self, bucket_name, file_name):
+        MiB = 1024**2
+        with open(file_name, 'rb') as f:
+            f_stat = os.stat(file_name)
+            size = f_stat.st_size
+            logger.info("upload %dMiB file" % (size / MiB))
+
+            start = time.time()
+            self.client.put_object(bucket_name, file_name, f, size)
+            duration = time.time()-start
+            s = speed(size, duration)
+            logger.info("file uploaded in %.2f sec (speed %.2fMiB/s)" % (duration, s))
+        return duration, s
+
     def mc(self):
         files = self.generate_files()
-        with self._temp_bucket() as bucket_name:
-            execute_mc('s3_demo_0', bucket_name, files)
 
-    def generate_files(self):
+        s3 = self._parent
+        guid = s3.service.guid
+        url = s3.schedule_action('url').wait(die=True).result
+        u = urlparse(url['public'])
+
+        configure_minio_host(
+            name=guid,
+            endpoint=u.netloc,
+            login=s3.data['data']['minioLogin'],
+            password=s3.data['data']['minioPassword'])
+
+        with self._temp_bucket() as bucket_name:
+            execute_mc(guid, bucket_name, files)
+
+    def generate_files(self, *sizes):
+        """
+        generate random files of a certain size
+
+        e.g.: self.generate_files(1,2,3,4)
+        will generate 4 files of 1,2,3 and 4 GiB
+
+        :return: list of files name
+        :rtype: list
+        """
+
         GiB = 1024**3
         files = []
-        # for size in [1, 4, 8]:
-        for size in [0.002]:
-            name = '%dgb.dat' % size
+        for size in sizes:
+            name = '%.2fgb.dat' % size
             generate_file(name, size*GiB)
             files.append(name)
         return files
+
+
+def speed(size, duration):
+    MiB = 1024**2
+    return (size/MiB) / duration
 
 
 def generate_file(name, size):
@@ -94,8 +146,16 @@ def generate_file(name, size):
     subprocess.run(args)
 
 
-def execute_mc(minio_name, bucket_name, files):
-    dest = "%s/%s" % (minio_name, bucket_name)
+def configure_minio_host(name, endpoint, login, password):
+    args = ['mc', 'config', 'host', 'rm', name]
+    subprocess.run(args)
+    args = ['mc', 'config', 'host', 'add', name, endpoint, login, password]
+    print(' '.join(args))
+    subprocess.run(args)
+
+
+def execute_mc(name, bucket, files):
+    dest = "%s/%s" % (name, bucket)
     args = ['mc', 'cp', *files, dest]
     print(args)
     proc = subprocess.run(args, encoding='utf-8')
