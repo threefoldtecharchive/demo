@@ -49,15 +49,15 @@ class EnvironmentReset:
         def do(node):
             try:
                 node.client.ping()
+
+                logger.info("Disks on node %s", node.addr)
+                for disk in node.disks.list():
+                    logger.info("\tdisk %s", disk.name)
+                    for part in disk.partitions:
+                        logger.info("\t\tpartition %s mounted on %s", part.name, part.mountpoint)
             except:
                 logger.error("can't reach %s skipping", node.addr)
                 return
-
-            logger.info("Disks on node %s", node.addr)
-            for disk in node.disks.list():
-                logger.info("\tdisk %s", disk.name)
-                for part in disk.partitions:
-                    logger.info("\t\tpartition %s mounted on %s", part.name, part.mountpoint)
 
         self._parent.execute_all_nodes(do, nodes=list_farm_nodes(organization))
 

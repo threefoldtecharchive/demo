@@ -7,6 +7,7 @@ from monitoring import Monitoring
 from perf import Perf
 from reset import EnvironmentReset
 from failures import FailureGenenator
+from urllib.parse import urlparse
 
 logger = j.logger.get('s3demo')
 
@@ -114,9 +115,30 @@ class S3Manager:
         """
         zos machine that host the vm_node
         """
-
         vm = self.dm_robot.services.get(template_name='dm_vm', name=self.service.guid)
-        return j.clients.zos.get(vm.data['data']['nodeId'])
+        robot = j.clients.zrobot.robot[vm.data['data']['nodeId']]
+        u = urlparse(robot._client.config.data['url'])
+        return j.clients.zos.get(vm.data['data']['nodeId'], data={'host': u.hostname})
+
+    def reset_vm(self):
+        dmvm = self.dm_robot.services.get(template_name='dm_vm', name=self.service.guid)
+        node = j.clients.zos.get(dmvm.data['data']['nodeId'])
+        robot = j.clients.zrobot.robots[node.name]
+        vm = robot.services.names[dmvm.guid+'_vm']
+        uuid = vm.data['data']['uuid']
+        node.client.kvm.reset(uuid)
+
+    def vm_vnc(self):
+        dmvm = self.dm_robot.services.get(template_name='dm_vm', name=self.service.guid)
+        robot = j.clients.zrobot.robots[dmvm.data['data']['nodeId']]
+        u = urlparse(robot._client.config.data['url'])
+        node = j.clients.zos.get(dmvm.data['data']['nodeId'], data={'host': u.hostname})
+        vm = robot.services.names[dmvm.guid+'_vm']
+        uuid = vm.data['data']['uuid']
+
+        vm_info = node.client.kvm.get(uuid=uuid)
+        node.client.nft.open_port(vm_info['vnc'])
+        print('open at %s:%s' % (node.public_addr, vm_info['vnc']))
 
     @property
     def robot_host(self):

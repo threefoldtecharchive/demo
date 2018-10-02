@@ -20,19 +20,40 @@ class Demo:
 
     def deploy_n(self, n, farm, size=20000, data=4, parity=2, login='admin', password='adminadmin'):
         start = len(self.s3)
+        tasks = []
         for i in range(start, start+n):
             name = 's3_demo_%d' % i
             self.s3[name] = S3Manager(self, name)
-            self.s3[name].deploy(farm, size=size, data=data, parity=parity, login=login, password=password)
+            tasks.append(self.s3[name].deploy(farm, size=size, data=data, parity=parity, login=login, password=password))
+        return tasks
 
     def urls(self):
         return {name: url for name, url in self._do_on_all(lambda s3: (s3.name, s3.url))}
 
     def minio_config(self):
-        return {name: config for name, config in self._do_on_all(lambda s3: (s3.name, s3.minio_config))}
+        out = {}
+        for name, config in self._do_on_all(lambda s3: (s3.name, s3.minio_config)):
+            out[name] = j.data.serializer.yaml.loads(config)
+        return out
 
     def states(self):
         return {name: config for name, config in self._do_on_all(lambda s3: (s3.name, s3.service.state))}
+
+    def spreading(self):
+        import collections
+        configs = self.minio_config()
+        output = {}
+        tlogs = []
+        for name, configs in configs.items():
+            data_shards = sorted(configs['datastor']['shards'])
+            output[name] = {
+                'data_shards': data_shards,
+                'duplicated_shards': [item for item, count in collections.Counter(data_shards).items() if count > 1],
+                'tlog_shard': configs['minio']['tlog']['address'],
+            }
+            tlogs.append(configs['minio']['tlog']['address'])
+        output['tlogs'] = sorted(tlogs)
+        return output
 
     def _do_on_all(self, func):
         group = Group()
@@ -52,6 +73,5 @@ def main(config):
     embed()
 
 
-# self.client.bash('test -b /dev/{0} && dd if=/dev/zero bs=1M count=500 of=/dev/{0}'.format(diskpath)).get()
 if __name__ == '__main__':
     main()
