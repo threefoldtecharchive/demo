@@ -116,7 +116,7 @@ class S3Manager:
         zos machine that host the vm_node
         """
         vm = self.dm_robot.services.get(template_name='dm_vm', name=self.service.guid)
-        robot = j.clients.zrobot.robot[vm.data['data']['nodeId']]
+        robot = j.clients.zrobot.robots[vm.data['data']['nodeId']]
         u = urlparse(robot._client.config.data['url'])
         return j.clients.zos.get(vm.data['data']['nodeId'], data={'host': u.hostname})
 
