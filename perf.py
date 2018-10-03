@@ -5,11 +5,15 @@ from contextlib import contextmanager
 from io import BytesIO
 from urllib.parse import urlparse
 
+from gevent import pool
 from jumpscale import j
 from minio import Minio
 from minio.error import BucketAlreadyExists, BucketAlreadyOwnedByYou
 
 logger = j.logger.get()
+
+MiB = 1024**2
+GiB = 1024**3
 
 
 class Perf:
@@ -57,7 +61,6 @@ class Perf:
         return self._client
 
     def simple_write_read(self, size=None):
-        MiB = 1024**2
         if not size:
             size = 2*MiB
 
@@ -67,7 +70,7 @@ class Perf:
             buf.write(input)
             buf.seek(0)
 
-            logger.info("upload %dMiB file" % size)
+            logger.info("upload %dMiB file" % size/MiB)
             self.client.put_object(bucket_name, 'blob', buf, len(input))
             logger.info("download same file")
             obj = self.client.get_object(bucket_name, 'blob')
@@ -76,7 +79,6 @@ class Perf:
             logger.info("comparison valid")
 
     def write_file(self, bucket_name, file_name):
-        MiB = 1024**2
         with open(file_name, 'rb') as f:
             f_stat = os.stat(file_name)
             size = f_stat.st_size
@@ -86,8 +88,22 @@ class Perf:
             self.client.put_object(bucket_name, file_name, f, size)
             duration = time.time()-start
             s = speed(size, duration)
-            logger.info("file uploaded in %.2f sec (speed %.2fMiB/s)" % (duration, s))
-        return duration, s
+            logger.info("%dMiB file uploaded in %.2f sec (speed %.2fMiB/s)" % ((size / MiB), duration, s))
+        return duration, s, size
+
+    def write_files(self, bucket_name, file_names):
+        def func(file_name):
+            duration, speed, size = self.write_file(bucket_name, file_name)
+            return (file_name, duration, speed, size)
+
+        speed_sum = 0
+        size_sum = 0
+        group = pool.Group()
+        for _, _, speed, size in group.imap_unordered(func, file_names):
+            speed_sum += speed
+            size_sum += size
+        group.join()
+        logger.info("uploaded %sMiB, total speed: %.2fMiB/s", size_sum/MiB, speed_sum)
 
     def mc(self):
         files = self.generate_files()
@@ -116,8 +132,6 @@ class Perf:
         :return: list of files name
         :rtype: list
         """
-
-        GiB = 1024**3
         files = []
         for size in sizes:
             name = '%.2fgb.dat' % size
@@ -127,7 +141,6 @@ class Perf:
 
 
 def speed(size, duration):
-    MiB = 1024**2
     return (size/MiB) / duration
 
 
