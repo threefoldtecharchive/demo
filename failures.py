@@ -1,8 +1,9 @@
 import signal
 import time
+from urllib.parse import urlparse
 
 import requests
-from requests.exceptions import ConnectTimeout, ConnectionError
+from requests.exceptions import ConnectionError, ConnectTimeout
 
 from jumpscale import j
 from zerorobot.template.state import StateCheckError
@@ -23,7 +24,7 @@ class FailureGenenator:
 
         def do(namespace):
             robot = j.clients.zrobot.robots[namespace['node']]
-            robot._try_god_token()
+            robot = robot_god_token(robot)
             for zdb in robot.services.find(template_name='zerodb'):
                 logger.info('start zerodb %s on node %s', zdb.name, namespace['node'])
                 zdb.schedule_action('start')
@@ -39,7 +40,7 @@ class FailureGenenator:
 
         def do(namespace):
             robot = j.clients.zrobot.robots[namespace['node']]
-            robot._try_god_token()
+            robot = robot_god_token(robot)
             for zdb in robot.services.find(template_name='zerodb'):
                 logger.info('stop zerodb %s on node %s', zdb.name, namespace['node'])
                 zdb.schedule_action('stop')
@@ -91,7 +92,7 @@ class FailureGenenator:
             if n >= count:
                 break
             robot = j.clients.zrobot.robots[namespace['node']]
-            robot._try_god_token()
+            robot = robot_god_token(robot)
             ns = robot.services.get(name=namespace['name'])
             zdb = robot.services.get(name=ns.data['data']['zerodb'])
 
@@ -116,7 +117,7 @@ class FailureGenenator:
             if n >= count:
                 break
             robot = j.clients.zrobot.robots[namespace['node']]
-            robot._try_god_token()
+            robot = robot_god_token(robot)
             ns = robot.services.get(name=namespace['name'])
             zdb = robot.services.get(name=ns.data['data']['zerodb'])
 
@@ -127,3 +128,21 @@ class FailureGenenator:
                 logger.info('start %s on node %s', zdb.name, namespace['node'])
                 zdb.schedule_action('start').wait(die=True)
                 n += 1
+
+
+def robot_god_token(robot):
+    """
+    try to retreive the god token from the node 0-robot
+    of a node
+    """
+
+    try:
+        u = urlparse(robot._client.config.data['url'])
+        node = j.clients.zos.get('godtoken', data={'host': u.hostname})
+        zcont = node.containers.get('zrobot')
+        resp = zcont.client.system('zrobot godtoken get').get()
+        token = resp.stdout.split(':', 1)[1].strip()
+        robot._client.god_token_set(token)
+    finally:
+        node = j.clients.zos.delete('godtoken')
+    return robot
