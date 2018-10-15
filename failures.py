@@ -16,36 +16,36 @@ class FailureGenenator:
     def __init__(self, parent):
         self._parent = parent
 
-    def zdb_start_all(self):
-        """
-        start all the zerodb services used by minio
-        """
-        s3 = self._parent
+    # def zdb_start_all(self):
+    #     """
+    #     start all the zerodb services used by minio
+    #     """
+    #     s3 = self._parent
 
-        def do(namespace):
-            robot = j.clients.zrobot.robots[namespace['node']]
-            robot = robot_god_token(robot)
-            for zdb in robot.services.find(template_name='zerodb'):
-                logger.info('start zerodb %s on node %s', zdb.name, namespace['node'])
-                zdb.schedule_action('start')
+    #     def do(namespace):
+    #         robot = j.clients.zrobot.robots[namespace['node']]
+    #         robot = robot_god_token(robot)
+    #         for zdb in robot.services.find(template_name='zerodb'):
+    #             logger.info('start zerodb %s on node %s', zdb.name, namespace['node'])
+    #             zdb.schedule_action('start')
 
-        self._parent.execute_all_nodes(do, nodes=s3.service.data['data']['namespaces'])
+    #     self._parent.execute_all_nodes(do, nodes=s3.service.data['data']['namespaces'])
 
-    def zdb_stop_all(self):
-        """
-        stop all the zerodb services used by minio
-        """
+    # def zdb_stop_all(self):
+    #     """
+    #     stop all the zerodb services used by minio
+    #     """
 
-        s3 = self._parent
+    #     s3 = self._parent
 
-        def do(namespace):
-            robot = j.clients.zrobot.robots[namespace['node']]
-            robot = robot_god_token(robot)
-            for zdb in robot.services.find(template_name='zerodb'):
-                logger.info('stop zerodb %s on node %s', zdb.name, namespace['node'])
-                zdb.schedule_action('stop')
+    #     def do(namespace):
+    #         robot = j.clients.zrobot.robots[namespace['node']]
+    #         robot = robot_god_token(robot)
+    #         for zdb in robot.services.find(template_name='zerodb'):
+    #             logger.info('stop zerodb %s on node %s', zdb.name, namespace['node'])
+    #             zdb.schedule_action('stop')
 
-        self._parent.execute_all_nodes(do, nodes=s3.service.data['data']['namespaces'])
+    #     self._parent.execute_all_nodes(do, nodes=s3.service.data['data']['namespaces'])
 
     def minio_process_down(self):
         """

@@ -1,11 +1,10 @@
 from jumpscale import j
 from zerorobot.service_collection import ServiceNotFoundError
 
-from gevent.pool import Group
+from gevent.pool import Pool
 
 from monitoring import Monitoring
 from perf import Perf
-from reset import EnvironmentReset
 from failures import FailureGenenator
 from urllib.parse import urlparse
 
@@ -18,7 +17,6 @@ class S3Manager:
         self.monitoring = Monitoring(self)
         self.failures = FailureGenenator(self)
         self.perf = Perf(self)
-        self.reset = EnvironmentReset(self)
 
         self._parent = parent
         self.name = name
@@ -53,9 +51,9 @@ class S3Manager:
             nodes = set([self.vm_node, self.vm_host])
             nodes.update(self.zerodb_nodes)
 
-        g = Group()
-        g.map(func, nodes)
-        g.join()
+        p = Pool(size=100)
+        p.map(func, nodes)
+        p.join()
 
     @property
     def service(self):

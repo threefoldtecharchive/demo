@@ -3,15 +3,18 @@ from gevent import monkey
 monkey.patch_all()
 
 import click
-from gevent.pool import Group
+from gevent.pool import Pool
 from jumpscale import j
 from s3 import S3Manager
+
+from reset import EnvironmentReset
 
 
 class Demo:
 
     def __init__(self, config):
         self.config = config
+        self.reset = EnvironmentReset(self)
         j.clients.zrobot.get('demo', data={'url': config['robot']['url']})
         dm_robot = j.clients.zrobot.robots['demo']
         self.s3 = {}
@@ -56,8 +59,8 @@ class Demo:
         return output
 
     def _do_on_all(self, func):
-        group = Group()
-        return group.imap_unordered(func, self.s3.values())
+        pool = Pool(size=100)
+        return pool.imap_unordered(func, self.s3.values())
 
 
 def read_config(path):
