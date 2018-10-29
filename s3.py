@@ -121,12 +121,12 @@ class S3Manager:
         dmvm = self.dm_robot.services.get(template_name='dm_vm', name=self.service.guid)
         node = j.clients.zos.get(dmvm.data['data']['nodeId'])
         robot = j.clients.zrobot.robots[node.name]
-        vm = robot.services.names[dmvm.guid+'_vm']
+        vm = robot.services.names[dmvm.guid + '_vm']
         uuid = vm.data['data']['uuid']
         node.client.kvm.reset(uuid)
 
     def vm_vnc(self):
-        vm = self.robot_host.services.names[self.dm_vm.guid+'_vm']
+        vm = self.robot_host.services.names[self.dm_vm.guid + '_vm']
         uuid = vm.data['data']['uuid']
 
         vm_info = self.vm_host.client.kvm.get(uuid=uuid)
@@ -160,7 +160,8 @@ class S3Manager:
             'storageType': 'hdd',
             'storageSize': size,
             'minioLogin': login,
-            'minioPassword': password}
+            'minioPassword': password,
+            'nsName': 'namespace'}
         self._service = self.dm_robot.services.find_or_create('s3', self.name, data=s3_data)
         return self._service.schedule_action('install')
 
