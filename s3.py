@@ -20,8 +20,7 @@ class S3Manager:
 
         self._parent = parent
         self.name = name
-        j.clients.zrobot.get('demo', data={'url': self._parent.config['robot']['url']})
-        self.dm_robot = j.clients.zrobot.robots['demo']
+        self.dm_robot = parent.robot
 
         self._zt_id = self._parent.config['zerotier']['id']
         self._zt_token = self._parent.config['zerotier']['token']
@@ -160,8 +159,34 @@ class S3Manager:
             'storageType': 'hdd',
             'storageSize': size,
             'minioLogin': login,
-            'minioPassword': password}
+            'minioPassword': password,
+            'nsName': j.data.idgenerator.generateGUID()}
         self._service = self.dm_robot.services.find_or_create('s3', self.name, data=s3_data)
+        return self._service.schedule_action('install')
+
+    def deploy_redundant(self, farm, size=20000, data=4, parity=2, login='admin', password='adminadmin'):
+        """
+        deploy an redundant s3 environment
+
+        :return: return the install task of the s3 service created
+        :rtype: Task
+        """
+
+        logger.info("install zerotier client")
+        zt = self.dm_robot.services.find_or_create('zerotier_client', 'zt', data={'token': self._zt_token})
+
+        logger.info("install s3_redundant service")
+        s3_data = {
+            'mgmtNic': {'id': self._zt_id, 'ztClient': 'zt'},
+            'farmerIyoOrg': farm,
+            'dataShards': data,
+            'parityShards': parity,
+            'storageType': 'hdd',
+            'storageSize': size,
+            'minioLogin': login,
+            'minioPassword': password
+        }
+        self._service = self.dm_robot.services.find_or_create('s3_redundant', self.name, data=s3_data)
         return self._service.schedule_action('install')
 
     @property
@@ -169,4 +194,7 @@ class S3Manager:
         """
         return the urls of the s3 once it's deployed
         """
-        return self.service.schedule_action('url').wait(die=True).result
+        try:
+            return self.service.schedule_action('url').wait(die=True).result
+        except:
+            return {}

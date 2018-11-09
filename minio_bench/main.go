@@ -2,13 +2,14 @@ package main
 
 import (
 	"crypto/rand"
-	"flag"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"sync"
 	"time"
+
+	"github.com/urfave/cli"
 
 	"github.com/minio/minio-go"
 )
@@ -19,53 +20,132 @@ const (
 )
 
 type configuration struct {
-	N        int    //number of concurent upload
-	FileSize int64  // size of the file to generate/upload
-	Endpoint string //address of the minio
-	Login    string
-	Password string
-	SSL      bool
+	N         int      //number of concurrent upload
+	FileSize  int64    // size of the file to generate/upload
+	Endpoints []string //address of the minios
+	Login     string
+	Password  string
+	SSL       bool
+}
+
+type result struct {
+	endpoint string
+	size     int64
+	speed    float64
+	duration time.Duration
+}
+
+func (r result) String() string {
+	return fmt.Sprintf("%s: Total uploaded %.2fGiB in %s (%.2fMib/s)", r.endpoint, float64(r.size/GiB), r.duration, r.speed)
 }
 
 var (
 	config configuration
 )
 
-func init() {
-	flag.IntVar(&config.N, "n", 1, "number of concurrent upload")
-	flag.Int64Var(&config.FileSize, "s", 1, "size of the file to upload in GiB")
-	flag.StringVar(&config.Endpoint, "endpoint", "127.0.0.1:9000", "endpoint of the minio to target")
-	flag.StringVar(&config.Login, "l", "admin", "login of the target minio")
-	flag.StringVar(&config.Password, "p", "adminadmin", "password of the target minio")
-	flag.BoolVar(&config.SSL, "ssl", false, "use SSL for minio connection")
+func main() {
+	app := cli.NewApp()
+
+	app.Flags = []cli.Flag{
+		cli.IntFlag{
+			Name:        "number, n",
+			Value:       1,
+			Usage:       "number of concurrent upload",
+			Destination: &config.N,
+		},
+		cli.Int64Flag{
+			Name:        "size, s",
+			Value:       1,
+			Usage:       "size of the file to upload in GiB",
+			Destination: &config.FileSize,
+		},
+		cli.StringSliceFlag{
+			Name:  "endpoints",
+			Usage: "endpoint of the minio to targets",
+		},
+		cli.StringFlag{
+			Name:        "login, l",
+			Value:       "admin",
+			Usage:       "minio login",
+			Destination: &config.Login,
+		},
+		cli.StringFlag{
+			Name:        "password, p",
+			Value:       "adminadmin",
+			Usage:       "minio password",
+			Destination: &config.Password,
+		},
+		cli.BoolFlag{
+			Name:        "ssl",
+			Usage:       "use SSL for minio connection",
+			Destination: &config.SSL,
+		},
+	}
+
+	app.Action = func(ctx *cli.Context) error {
+		log.Println("generate data files")
+		objectName := fmt.Sprintf("%d.dat", config.FileSize)
+		if err := generateFile(objectName, config.FileSize*GiB); err != nil {
+			log.Fatalln(err)
+		}
+
+		config.Endpoints = ctx.StringSlice("endpoints")
+
+		c := make(chan result)
+		wg := sync.WaitGroup{}
+
+		for _, endpoint := range config.Endpoints {
+			wg.Add(1)
+			go func(endpoint, login, password string, n int, size int64, ssl bool) {
+				defer wg.Done()
+				result, err := upload(endpoint, login, password, n, size, ssl)
+				if err != nil {
+					log.Printf("error uploading to %s", endpoint)
+				}
+				c <- result
+			}(endpoint, config.Login, config.Password, config.N, config.FileSize, config.SSL)
+		}
+
+		go func() {
+			wg.Wait()
+			close(c)
+		}()
+
+		for result := range c {
+			fmt.Println(result)
+		}
+
+		return nil
+	}
+
+	err := app.Run(os.Args)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
-func main() {
-	flag.Parse()
-
+func upload(endpoint, login, password string, n int, size int64, ssl bool) (result, error) {
+	output := result{
+		endpoint: endpoint,
+	}
 	// Initialize minio client object.
-	minioClient, err := minio.New(config.Endpoint, config.Login, config.Password, config.SSL)
+	minioClient, err := minio.New(endpoint, login, password, ssl)
 	if err != nil {
-		log.Fatalln(err)
+		return output, err
 	}
 
-	// Make a new bucket called.
+	// Make a new bucket
 	bucketName := "test"
 	location := ""
+	log.Printf("%s: create bucket %s\n", endpoint, bucketName)
 	createBucket(minioClient, bucketName, location)
-	log.Printf("Bucket successfully created %s\n", bucketName)
-
-	// generate data file
-	objectName := fmt.Sprintf("%d.dat", config.FileSize)
-	filePath := objectName
-	if err := generateFile(objectName, config.FileSize*GiB); err != nil {
-		log.Fatalln(err)
-	}
+	log.Printf("%s: Bucket successfully created %s\n", endpoint, bucketName)
 
 	// start the upload
 	var (
 		start     = time.Now()
 		totalSize int64
+		filePath  = fmt.Sprintf("%d.dat", config.FileSize)
 	)
 
 	c := make(chan int64)
@@ -74,16 +154,11 @@ func main() {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			log.Printf("Upload %s with FPutObject", filePath)
-			start := time.Now()
-			n, err := minioClient.FPutObject(bucketName, fmt.Sprintf("%d_%s", i, objectName), filePath, minio.PutObjectOptions{})
+			log.Printf("%s: Upload %s", endpoint, filePath)
+			n, err := minioClient.FPutObject(bucketName, fmt.Sprintf("%d_%s", i, filePath), filePath, minio.PutObjectOptions{})
 			if err != nil {
 				log.Fatalln(err)
 			}
-			t := time.Now()
-			elapsed := t.Sub(start)
-			s := speed(elapsed, n) / float64(MiB)
-			log.Printf("Successfully uploaded %s of size %.2fGiB in %s (%.2fMib/s)\n", objectName, float64(n/GiB), elapsed, s)
 			c <- n
 		}(i)
 	}
@@ -98,8 +173,12 @@ func main() {
 	}
 	end := time.Now()
 	elapsed := end.Sub(start)
-	log.Printf("Total uploaded %.2fGiB in %s (%.2fMib/s)\n", float64(totalSize/GiB), elapsed, speed(elapsed, totalSize)/float64(MiB))
 
+	output.duration = elapsed
+	output.size = totalSize
+	output.speed = speed(elapsed, totalSize) / float64(MiB)
+
+	return output, nil
 }
 
 func createBucket(client *minio.Client, bucketName, location string) error {

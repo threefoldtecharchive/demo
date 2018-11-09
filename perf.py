@@ -66,17 +66,18 @@ class Perf:
 
         with self._temp_bucket() as bucket_name:
             buf = BytesIO()
-            input = os.urandom(1024*1024*2)
+            input = os.urandom(size)
             buf.write(input)
             buf.seek(0)
 
-            logger.info("upload %dMiB file" % size/MiB)
+            logger.info("upload %sMiB file", (size/MiB))
             self.client.put_object(bucket_name, 'blob', buf, len(input))
             logger.info("download same file")
             obj = self.client.get_object(bucket_name, 'blob')
             logger.info("compare upload and download")
             assert input == obj.read()
             logger.info("comparison valid")
+            return True
 
     def write_file(self, bucket_name, file_name):
         with open(file_name, 'rb') as f:
