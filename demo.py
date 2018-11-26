@@ -15,7 +15,7 @@ class Demo:
     def __init__(self, config):
         self.config = config
         self.reset = EnvironmentReset(self)
-        j.clients.zrobot.get('demo', data={'url': config['robot']['url'], 'god_token_': 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJhdXRoZW50aWNhdGlvbiI6ImdvZF90b2tlbiJ9.MsnVSQ3icbY0d57s736tpc8Y8RgTwilqmX6jHZzrbLY'})
+        j.clients.zrobot.get('demo', data={'url': config['robot']['url'], 'god_token_': ''})
         #j.clients.zrobot.get('demo', data={'url': config['robot']['url']})
         self.dm_robot = j.clients.zrobot.robots['demo']
         self.s3 = {}
