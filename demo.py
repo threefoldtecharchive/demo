@@ -6,7 +6,7 @@ import click
 from gevent.pool import Pool
 from jumpscale import j
 from s3 import S3Manager
-
+from s3_redundant import S3RedundantManager
 from reset import EnvironmentReset
 
 
@@ -15,10 +15,11 @@ class Demo:
     def __init__(self, config):
         self.config = config
         self.reset = EnvironmentReset(self)
-        j.clients.zrobot.get('demo', data={'url': config['robot']['url']})
-        dm_robot = j.clients.zrobot.robots['demo']
+        j.clients.zrobot.get('demo', data={'url': config['robot']['url'], 'god_token_': 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJhdXRoZW50aWNhdGlvbiI6ImdvZF90b2tlbiJ9.MsnVSQ3icbY0d57s736tpc8Y8RgTwilqmX6jHZzrbLY'})
+        #j.clients.zrobot.get('demo', data={'url': config['robot']['url']})
+        self.dm_robot = j.clients.zrobot.robots['demo']
         self.s3 = {}
-        for service in dm_robot.services.find(template_name='s3'):
+        for service in self.dm_robot.services.find(template_name='s3'):
             self.s3[service.name] = S3Manager(self, service.name)
 
     def deploy_n(self, n, farm, size=20000, data=4, parity=2, login='admin', password='adminadmin'):
@@ -29,6 +30,11 @@ class Demo:
             self.s3[name] = S3Manager(self, name)
             tasks.append(self.s3[name].deploy(farm, size=size, data=data, parity=parity, login=login, password=password))
         return tasks
+
+    def deploy_s3_redundant(self, name, farm, size=1000, data=1, parity=1, login='admin', password='adminadmin', wait=False):
+        self.s3_redundant[name] = S3RedundantManager(self, name)
+        return self.s3_redundant[name].deploy(farm, size=size, data=data, parity=parity, login=login, password=password,
+                                              wait=wait)
 
     def urls(self):
         return {name: url for name, url in self._do_on_all(lambda s3: (s3.name, s3.url))}
