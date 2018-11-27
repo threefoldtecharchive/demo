@@ -101,4 +101,5 @@ def list_farm_nodes(farm_organization):
     resp.raise_for_status()
     for n in nodes:
         u = urlparse(n.robot_address)
+        logger.info('node : {}'.format(u))
         yield j.clients.zos.get(n.node_id, data={'host': u.hostname})

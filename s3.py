@@ -1,38 +1,227 @@
 from jumpscale import j
+import os, time, hashlib
 from zerorobot.service_collection import ServiceNotFoundError
-
-from gevent.pool import Pool
-
-from monitoring import Monitoring
-from perf import Perf
+from gevent.pool import Group
+from reset import EnvironmentReset
 from failures import FailureGenenator
 from urllib.parse import urlparse
+from minio import Minio
+from minio.error import BucketAlreadyExists, BucketAlreadyOwnedByYou
+from urllib3.exceptions import ProtocolError
 
 logger = j.logger.get('s3demo')
 
 
 class S3Manager:
-
     def __init__(self, parent, name):
-        self.monitoring = Monitoring(self)
         self.failures = FailureGenenator(self)
-        self.perf = Perf(self)
+        self.reset = EnvironmentReset(self)
 
         self._parent = parent
         self.name = name
-        j.clients.zrobot.get('demo', data={'url': self._parent.config['robot']['url']})
-        self.dm_robot = j.clients.zrobot.robots['demo']
+        self.dm_robot = self._parent.dm_robot
 
         self._zt_id = self._parent.config['zerotier']['id']
         self._zt_token = self._parent.config['zerotier']['token']
 
+        self._client_type = 'public'
+        self._client = None
         self._vm_node = None
         self._vm_robot = None
+        self._vm_host_robot = None
         self._vm_host = None
+        self._container_client = None
         try:
-            self._service = self.dm_robot.services.get(name=name)
+            self._service = self.dm_robot.services.get(name=name, template_name='s3')
         except ServiceNotFoundError:
             self._service = None
+
+    @property
+    def client(self):
+        if self._client is None:
+            url = urlparse(self.data['minioUrls'][self._client_type])
+            logger.info('get s3 client : {}'.format(url))
+            self._client = Minio(url.netloc,
+                                 access_key=self.data['minioLogin'],
+                                 secret_key=self.data['minioPassword'],
+                                 secure=False)
+        return self._client
+
+    @property
+    def data(self):
+        return self.service.data['data']
+
+    @property
+    def service(self):
+        if self._service is None:
+            raise RuntimeError("s3 service doesn't exist yet, call deploy to create it")
+        return self._service
+
+    @property
+    def service_vm(self):
+        return self.dm_robot.services.get(name=self.service.guid, template_name='dm_vm')
+
+    @property
+    def vm_node(self):
+        """
+        zos client on the zos VM that host the minio container
+        """
+        if self._vm_node is None:
+            dm_vm = self.dm_robot.services.get(name=self.service.guid, template_name='dm_vm')
+            ip = dm_vm.schedule_action('info').wait(die=True).result['zerotier']['ip']
+            self._vm_node = j.clients.zos.get('demo_vm_node', data={'host': ip})
+        return self._vm_node
+
+    @property
+    def vm_robot(self):
+        """
+        zrobot client on the zos VM that host the minio container
+        """
+        if self._vm_robot is None:
+            j.clients.zrobot.get('demo_vm_robot', data={'url': "http://%s:6600" % self.vm_node.public_addr})
+            self._vm_robot = j.clients.zrobot.robots['demo_vm_robot']
+        return self._vm_robot
+
+    @property
+    def vm_host_robot(self):
+        """
+        zrobot client of the node  that hosts the zos VM which hosts the minio container
+        """
+        if self._vm_host_robot is None:
+            j.clients.zrobot.get('demo_vm_host_robot', data={'url': "http://%s:6600" % self.vm_host.public_addr}) # 'god_token_': ''
+            self._vm_host_robot = j.clients.zrobot.robots['demo_vm_host_robot']
+        return self._vm_host_robot
+
+    @property
+    def minio_container(self):
+        if self._container_client is None:
+            container = self.vm_node.client.container.find('minio_{}'.format(self.service.guid))
+            self._container_client = self.vm_node.client.container.client(list(container.keys())[0])
+        return self._container_client
+
+    @property
+    def zerodb_nodes(self):
+        for zerodb in self.service.data['data']['namespaces']:
+            yield j.clients.zos.get(zerodb['node'])
+
+    @property
+    def tlog_node(self):
+        data = self.service.data['data']
+        if data['tlog'] and data['tlog']['node']:
+            if data['tlog']['node'] in j.clients.zos.list():
+                return j.clients.zos.get(data['tlog']['node'])
+            else:
+                tlogs_host = data['tlog']['url'].replace('//', '').split(':')[1]
+                j.clients.zos.get(data['tlog']['node'], data={'host': tlogs_host})
+                return j.clients.zos.get(data['tlog']['node'])
+
+    @property
+    def minio_config(self):
+        return self.minio_container.download_content('/bin/zerostor.yaml')
+
+    @property
+    def vm_host(self):
+        """
+        zos machine that host the vm_node
+        """
+        if self._vm_host is None:
+            vm = self.dm_robot.services.get(template_name='dm_vm', name=self.service.guid)
+            result = vm.schedule_action('info').wait(die=True).result
+            self._vm_host = j.clients.zos.get(result['node_id'], data={'host': result['host']['public_addr']})
+        return self._vm_host
+
+    @property
+    def robot_host(self):
+        """
+        robot of the the vm host
+        """
+
+        vm = self.dm_robot.services.get(template_name='dm_vm', name=self.service.guid)
+        return j.clients.zrobot.robots[vm.data['data']['nodeId']]
+
+    @property
+    def url(self):
+        """
+        return the urls of the s3 once it's deployed
+        """
+        return self.service.schedule_action('url').wait(die=True).result
+
+    @property
+    def datac(self):
+        return self.service.data['data']
+
+    @property
+    def parity(self):
+        return self.data['parityShards']
+
+    @property
+    def shards(self):
+        return self.data['dataShards']
+
+    def _create_file(self, file_name, size, directory='/tmp'):
+        file_path = '{}/{}'.format(directory, file_name)
+        with open('{}/{}'.format(directory, file_name), 'wb') as f:
+            f.write(os.urandom(size))
+        return file_path
+
+    def _create_bucket(self):
+        bucket_name = j.data.idgenerator.generateXCharID(16)
+        try:
+            self.client.make_bucket(bucket_name)
+            logger.info("create bucket")
+            logger.info("bucket : {}".format(bucket_name))
+        except BucketAlreadyExists:
+            logger.warning('Bucket already exists')
+        except BucketAlreadyOwnedByYou:
+            logger.warning('Bucket already owned by you')
+        except Exception as e:
+            logger.error("can't create bucket!")
+            logger.error(e)
+            raise RuntimeError("Can't create bucket!")
+        return bucket_name
+
+    def upload_file(self, size=1024 * 1024):
+        bucket_name = self._create_bucket()
+        if not bucket_name:
+            raise RuntimeError
+        file_name = j.data.idgenerator.generateXCharID(16)
+        file_path = self._create_file(file_name, size)
+        file_md5 = hashlib.md5(open(file_path, 'rb').read()).hexdigest()
+        logger.info("upload {} file to {} bucket".format(file_name, bucket_name))
+        try:
+            self.client.fput_object(bucket_name, file_name, file_path)
+        except Exception as e:
+            logger.warning("Can't upload {} file".format(file_name))
+            logger.error(e)
+            raise RuntimeError("Can't upload {} file".format(file_name))
+        os.remove(file_path)
+        return file_name, bucket_name, file_md5
+
+    def download_file(self, file_name, bucket_name, delete_bucket=False, die=True):
+        try:
+            logger.info("download {} file form {} bucket".format(file_name, bucket_name))
+            data = self.client.get_object(bucket_name, file_name).data
+        except ProtocolError:
+            if die:
+                for _ in range(60):
+                    try:
+                        data = self.client.get_object(bucket_name, file_name).data
+                        break
+                    except Exception as error:
+                        logger.warning('there is an error in downloading the file, we will try again!')
+                        logger.warning(error)
+                        time.sleep(5)
+                else:
+                    data = self.client.get_object(bucket_name, file_name).data
+            else:
+                data = self.client.get_object(bucket_name, file_name).data
+        finally:
+            if delete_bucket:
+                logger.info("delete {} bucket".format(bucket_name))
+                self.client.remove_bucket(bucket_name)
+        if data:
+            d_file_md5 = hashlib.md5(data).hexdigest()
+            return d_file_md5
 
     def execute_all_nodes(self, func, nodes=None):
         """
@@ -51,96 +240,11 @@ class S3Manager:
             nodes = set([self.vm_node, self.vm_host])
             nodes.update(self.zerodb_nodes)
 
-        p = Pool(size=100)
-        p.map(func, nodes)
-        p.join()
+        g = Group()
+        g.map(func, nodes)
+        g.join()
 
-    @property
-    def service(self):
-        if self._service is None:
-            raise RuntimeError("s3 service doesn't exist yet, call deploy to create it")
-        return self._service
-
-    @property
-    def dm_vm(self):
-        return self.dm_robot.services.get(name=self.service.guid)
-
-    @property
-    def vm_node(self):
-        """
-        zos client on the zos VM that host the minio container
-        """
-        if self._vm_node is None:
-            ip = self.dm_vm.schedule_action('info').wait(die=True).result['zerotier']['ip']
-            self._vm_node = j.clients.zos.get('demo_vm_node', data={'host': ip})
-        return self._vm_node
-
-    @property
-    def vm_robot(self):
-        """
-        zrobot client on the zos VM that host the minio container
-        """
-        if self._vm_robot is None:
-            self._vm_robot = j.clients.zrobot.robots['%s_vm' % self.vm_node.public_addr]
-        return self._vm_robot
-
-    @property
-    def zerodb_nodes(self):
-        for zerodb in self.service.data['data']['namespaces']:
-            yield j.clients.zos.get(zerodb['node'])
-
-    @property
-    def tlog_node(self):
-        data = self.service.data['data']
-        if data['tlog'] and data['tlog']['node']:
-            return j.clients.zos.get(data['tlog']['node'])
-
-    @property
-    def minio_container(self):
-        """
-        container running minio.
-        This containers run on vm_node
-        """
-        return self.vm_node.containers.get("minio_%s" % self.service.guid)
-
-    @property
-    def minio_config(self):
-        return self.minio_container.download_content('/bin/zerostor.yaml')
-
-    @property
-    def vm_host(self):
-        """
-        zos machine that host the vm_node
-        """
-        if self._vm_host is None:
-            result = self.dm_vm.schedule_action('info').wait(die=True).result
-            self._vm_host = j.clients.zos.get(result['node_id'], data={'host': result['host']['public_addr']})
-        return self._vm_host
-
-    def reset_vm(self):
-        dmvm = self.dm_robot.services.get(template_name='dm_vm', name=self.service.guid)
-        node = j.clients.zos.get(dmvm.data['data']['nodeId'])
-        robot = j.clients.zrobot.robots[node.name]
-        vm = robot.services.names[dmvm.guid + '_vm']
-        uuid = vm.data['data']['uuid']
-        node.client.kvm.reset(uuid)
-
-    def vm_vnc(self):
-        vm = self.robot_host.services.names[self.dm_vm.guid + '_vm']
-        uuid = vm.data['data']['uuid']
-
-        vm_info = self.vm_host.client.kvm.get(uuid=uuid)
-        self.vm_host.client.nft.open_port(vm_info['vnc'])
-        print('open at %s:%s' % (self.vm_host.public_addr, vm_info['vnc']))
-
-    @property
-    def robot_host(self):
-        """
-        robot of the the vm host
-        """
-        return j.clients.zrobot.robots[self.dm_vm.data['data']['nodeId']]
-
-    def deploy(self, farm, size=20000, data=4, parity=2, login='admin', password='adminadmin'):
+    def deploy(self, farm, size=1000, data=1, parity=1, nsName='namespace', login='admin', password='adminadmin'):
         """
         deploy an s3 environment
 
@@ -149,7 +253,7 @@ class S3Manager:
         """
 
         logger.info("install zerotier client")
-        zt = self.dm_robot.services.find_or_create('zerotier_client', 'zt', data={'token': self._zt_token})
+        self.dm_robot.services.find_or_create('zerotier_client', 'zt', data={'token': self._zt_token})
 
         logger.info("install s3 service")
         s3_data = {
@@ -161,13 +265,6 @@ class S3Manager:
             'storageSize': size,
             'minioLogin': login,
             'minioPassword': password,
-            'nsName': 'namespace'}
+            'nsName': nsName}
         self._service = self.dm_robot.services.find_or_create('s3', self.name, data=s3_data)
         return self._service.schedule_action('install')
-
-    @property
-    def url(self):
-        """
-        return the urls of the s3 once it's deployed
-        """
-        return self.service.schedule_action('url').wait(die=True).result
