@@ -19,6 +19,7 @@ class Demo:
         #j.clients.zrobot.get('demo', data={'url': config['robot']['url']})
         self.dm_robot = j.clients.zrobot.robots['demo']
         self.s3 = {}
+        self.s3_redundant = {}
         for service in self.dm_robot.services.find(template_name='s3'):
             self.s3[service.name] = S3Manager(self, service.name)
 
