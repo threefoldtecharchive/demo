@@ -1,5 +1,5 @@
 
-from jumpscale import j
+from Jumpscale import j
 from zerorobot.service_collection import ServiceNotFoundError
 from reset import EnvironmentReset
 from failures import FailureGenenator
@@ -113,3 +113,4 @@ class S3RedundantManager:
 
     def delete(self):
         self.service.delete()
+

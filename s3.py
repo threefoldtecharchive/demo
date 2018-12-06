@@ -1,4 +1,4 @@
-from jumpscale import j
+from Jumpscale import j
 import os, time, hashlib
 from zerorobot.service_collection import ServiceNotFoundError
 from gevent.pool import Group
@@ -268,3 +268,4 @@ class S3Manager:
             'nsName': nsName}
         self._service = self.dm_robot.services.find_or_create('s3', self.name, data=s3_data)
         return self._service.schedule_action('install')
+

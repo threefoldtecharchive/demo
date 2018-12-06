@@ -6,7 +6,7 @@ from io import BytesIO
 from urllib.parse import urlparse
 
 from gevent import pool
-from jumpscale import j
+from Jumpscale import j
 from minio import Minio
 from minio.error import BucketAlreadyExists, BucketAlreadyOwnedByYou
 
@@ -172,3 +172,4 @@ def execute_mc(name, bucket, files):
     args = ['mc', 'cp', *files, dest]
     print(args)
     proc = subprocess.run(args, encoding='utf-8')
+

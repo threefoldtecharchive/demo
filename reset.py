@@ -3,7 +3,7 @@ import time
 import requests
 from requests.exceptions import ConnectTimeout, ConnectionError
 
-from jumpscale import j
+from Jumpscale import j
 from zerorobot.template.state import StateCheckError
 from urllib.parse import urlparse
 logger = j.logger.get()
@@ -79,11 +79,11 @@ class EnvironmentReset:
 
     def remove_all_godtoken(self):
         for path in j.sal.fs.listFilesInDir(j.sal.fs.joinPaths(j.tools.configmanager.path, 'j.clients.zrobot')):
-            data = j.data.serializer.toml.load(path)
+            data = j.data.serializers.toml.load(path)
             if data.get('god_token_'):
                 print('remove god token from %s' % path)
                 data['god_token_'] = ''
-                j.data.serializer.toml.dump(path, data)
+                j.data.serializers.toml.dump(path, data)
 
 
 def execute_all_nodes(func, nodes):
@@ -103,3 +103,4 @@ def list_farm_nodes(farm_organization):
         u = urlparse(n.robot_address)
         logger.info('node : {}'.format(u))
         yield j.clients.zos.get(n.node_id, data={'host': u.hostname})
+

@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 import requests, random
 from requests.exceptions import ConnectionError, ConnectTimeout
 
-from jumpscale import j
+from Jumpscale import j
 from zerorobot.template.state import StateCheckError
 from zerorobot.service_collection import ServiceNotFoundError
 
@@ -437,3 +437,4 @@ def robot_god_token(robot):
     finally:
         j.clients.zos.delete('godtoken')
     return robot
+

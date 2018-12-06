@@ -1,4 +1,4 @@
-from jumpscale import j
+from Jumpscale import j
 
 logger = j.logger.get('s3demo')
 
@@ -37,3 +37,4 @@ class Monitoring:
                 logger.info("stop rtinfo on node %s", node.name)
                 node.client.rtinfo.stop(host, port)
         self._parent.execute_all_nodes(do)
+

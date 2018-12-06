@@ -4,7 +4,7 @@ monkey.patch_all()
 
 import click
 from gevent.pool import Pool
-from jumpscale import j
+from Jumpscale import j
 from s3 import S3Manager
 from s3_redundant import S3RedundantManager
 from reset import EnvironmentReset
@@ -43,7 +43,7 @@ class Demo:
     def minio_config(self):
         out = {}
         for name, config in self._do_on_all(lambda s3: (s3.name, s3.minio_config)):
-            out[name] = j.data.serializer.yaml.loads(config)
+            out[name] = j.data.serializers.yaml.loads(config)
         return out
 
     def states(self):
@@ -71,7 +71,7 @@ class Demo:
 
 
 def read_config(path):
-    config = j.data.serializer.yaml.load(path)
+    config = j.data.serializers.yaml.load(path)
     return config
 
 
@@ -85,3 +85,4 @@ def main(config):
 
 if __name__ == '__main__':
     main()
+
