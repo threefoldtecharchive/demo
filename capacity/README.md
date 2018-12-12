@@ -1,4 +1,4 @@
-# This Capacity will give you some handy tools to use in parallel with your demo object. For instance using it, you can update your zerorobots, check zeroos version, etc..
+# This Capacity will give you some handy tools to use in parallel with your demo object. For instance you can update your zerorobots, check zeroos version, etc..
 
 ## How to use
 1- Pull the repo then run this command
